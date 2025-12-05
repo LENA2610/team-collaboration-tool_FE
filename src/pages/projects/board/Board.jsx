@@ -233,6 +233,7 @@ export default function Board() {
         let editTargetId = null;
         let editOriginalIsNotice = false;
         let tempVoteData = null;    // 투표 데이터, 작성 완료 전
+        let editOriginalHasVoting = false;  // 게시글 수정할 때, 그 글이 투표가 있나?
 
 
         // 2가지 타입 == 게시글 작성, 수정
@@ -251,6 +252,11 @@ export default function Board() {
             if (isNoticeEl) isNoticeEl.checked = false;
             if (isVoteEl) isVoteEl.checked = false;
             if (fileEl) fileEl.value = ""; // 파일 선택 초기화
+
+            editOriginalHasVoting = false;
+            if (writePanel) writePanel.classList.remove("edit-mode");
+            const voteBtn = document.querySelector(".GSPW_vote_button");
+            if (voteBtn) voteBtn.textContent = "투표 추가";
 
             if (headTitle) headTitle.textContent = "게시글 작성";
             if (submitBtn) submitBtn.textContent = "작성완료"; // 버튼 텍스트 원상복구
@@ -276,6 +282,10 @@ export default function Board() {
             if (contentEl) contentEl.value = post.content || "";
             if (isNoticeEl) isNoticeEl.checked = post.isNotice || false;
             if (isVoteEl) isVoteEl.checked = post.hasVote || false;
+
+            editOriginalHasVoting = !!post.hasVote;
+            if (writePanel) writePanel.classList.add("edit-mode");
+
 
             // 파일(input type=file)은 일단 뒤 로 미 루 기
 
@@ -312,6 +322,10 @@ export default function Board() {
         const noticeCheckbox = document.getElementById("is-notice");
         const over10El = document.querySelector(".GongJi_over10");
 
+        const searchInput = document.getElementById("GSP_search_box");
+        const searchButton = document.getElementById("GSP_search_button");
+        const searchTypeSelect = document.getElementById("GSP_search_type");
+
         // 공지 10개 체크 막는 거를 새로 체크하는 것만 막아야지, 이미 체크 되어있는 거 푸는 거까지 막으면 우짜노
         let isNoticeLimitReached = false;
         if (noticeCheckbox) {
@@ -337,14 +351,19 @@ export default function Board() {
         const buildPostItem = (post) => {
             const postDiv = document.createElement("div");
             postDiv.className = "post_item";
-            postDiv.dataset.id = post.id;   // 공지글을 위해 따로 저장
+            // dataset.id는 항상 PK(서버 postPk)를 사용
+            postDiv.dataset.id = post.id;
 
             const idSpan = document.createElement("span");
             idSpan.className = "post_id";
-            idSpan.textContent = post.id;
             postDiv.appendChild(idSpan);
 
-            // 공지글이면, 글번호 대신 공지 아이콘으로
+            // 화면상 보이는 번호
+            const displayNumber = (typeof post.postNumber !== "undefined" && post.postNumber !== null)
+                ? post.postNumber
+                : post.id;
+
+            // 공지글이면 아이콘 표시, 아니면 번호 표시
             if (post.isNotice) {
                 const img = document.createElement("img");
                 img.src = GongJiIcon;
@@ -354,10 +373,10 @@ export default function Board() {
                 idSpan.style.display = "flex";
                 idSpan.style.alignItems = "center";
                 idSpan.style.justifyContent = "center";
-                idSpan.textContent = "";    // 글번호 제거
+                idSpan.textContent = "";
                 idSpan.appendChild(img);
             } else {
-                idSpan.textContent = post.id;
+                idSpan.textContent = displayNumber;
             }
 
             const titleSpan = document.createElement("span");
@@ -427,15 +446,26 @@ export default function Board() {
 
         // ============================================================
         // GET : /api/posts == 게시글 리스트 요청
-        const loadPostList = (page) => {
+        const loadPostList = (page, searchOptions = currentSearch) => {
             // UI의 페이지는 1부터 시작, API는 0부터 시작
             const apiPage = page - 1;
             const token = localStorage.getItem("token");
-            const projectPk = ProjectPK; // TODO: 실제 projectPk로 변경 필요
+            const projectPk = ProjectPK;
 
-            console.log(`GET : /api/posts 요청 (Page: ${page}) / 보내는 내용 == ${projectPk}&page=${apiPage}&size=10`);
+            // 쿼리 파라미터 구성
+            const params = new URLSearchParams();
+            params.set("projectPk", projectPk);
+            params.set("page", apiPage);
+            params.set("size", 10);
 
-            fetch(`${baseURL}/api/posts?projectPk=${projectPk}&page=${apiPage}&size=10`, {
+            // 검색 옵션이 있으면 keyword + searchType 추가
+            if (searchOptions && searchOptions.keyword) {
+                params.set("keyword", searchOptions.keyword);
+                params.set("searchType", searchOptions.searchType || "TITLE");
+            }
+            console.log(`GET : /api/posts 요청 (Page: ${page}) / 쿼리 == ${params.toString()}`);
+
+            fetch(`${baseURL}/api/posts?${params.toString()}`, {
                 method: "GET",
                 headers: {
                     "Authorization": `Bearer ${token}`,
@@ -445,13 +475,12 @@ export default function Board() {
                 .then(async (res) => {
                     console.log(`GET : /api/posts 응답 코드 == ${res.status}`);
                     if (res.status === 200) {
-                        // [CASE 1] API 성공
                         const data = await res.json();
                         console.log("GET : /api/posts 성공 코드 200 == ", data);
 
-                        // API 데이터를 UI 형식으로 변환
                         const uiPosts = data.content.map(p => ({
-                            id: p.postPk,
+                            id: p.postPk,              // 실제 PK (API 호출용)
+                            postNumber: p.postNumber,  // 화면상 보이는 번호
                             title: p.title,
                             content: p.content,
                             author: p.authorName,
@@ -461,11 +490,10 @@ export default function Board() {
                             hasFile: p.hasFile
                         }));
 
+                        // 공지 10개 로직 그대로 유지
                         if (page === 1 && uiPosts.length === 10) {
                             const noticeCount = uiPosts.filter(p => p.isNotice).length;
 
-
-                            // 공지 개수 10개 over인 경우,
                             if (noticeCount === 10) {
                                 if (over10El) over10El.classList.add("on");
                                 isNoticeLimitReached = true;
@@ -477,6 +505,7 @@ export default function Board() {
                             if (over10El) over10El.classList.remove("on");
                             isNoticeLimitReached = false;
                         }
+
                         renderPosts(uiPosts);
                         renderPagination(page, data.totalPages || 1);
                     } else {
@@ -513,8 +542,10 @@ export default function Board() {
             // XML 데이터를 UI 형식으로 변환
             const uiPosts = postsArray.map(p => {
                 const val = (tag) => p.getElementsByTagName(tag)[0]?.textContent || "";
+                const idText = val("id");
                 return {
-                    id: val("id"),
+                    id: idText,                 // 실제 PK 대용
+                    postNumber: idText,         // 화면상 보이는 번호
                     title: val("title"),
                     content: val("content"),
                     author: val("author"),
@@ -525,10 +556,30 @@ export default function Board() {
                 };
             });
 
-            // Mock 데이터는 이미 10개씩 잘려있으므로 그대로 렌더링
             renderPosts(uiPosts);
             renderPagination(page, MAX_MOCK_PAGES);
         };
+
+        // 검색 버튼 클릭 시
+        let currentSearch = { keyword: "", searchType: "" };
+        const onSearchClick = () => {
+            if (!searchInput) return;
+
+            const keyword = searchInput.value.trim();
+            const searchType = searchTypeSelect ? searchTypeSelect.value : "TITLE";
+            currentPage = 1;
+
+            // 검색어가 없으면 전체 게시글 목록 요청
+            if (!keyword) {
+                currentSearch = { keyword: "", searchType: "" };
+                loadPostList(1, currentSearch);
+                return;
+            }
+            // 검색 상태 저장
+            currentSearch = { keyword, searchType };
+            loadPostList(1, currentSearch);
+        };
+        searchButton && searchButton.addEventListener("click", onSearchClick);
 
 
         // 페이지 클릭 이벤트
@@ -541,13 +592,12 @@ export default function Board() {
             if (!Number.isFinite(toPage) || toPage === currentPage) return;
 
             currentPage = toPage;
-            // 페이지 클릭 시 데이터 새로 로드 (대공사 핵심)
-            loadPostList(currentPage);
+            loadPostList(currentPage, currentSearch);  // 페이지 리프레쉬
         };
         pageContainer.addEventListener("click", onPageClick);
 
         // 초기 로딩 (1페이지)
-        loadPostList(1);
+        loadPostList(1, currentSearch);
 
 
         // ============================================================
@@ -587,12 +637,20 @@ export default function Board() {
 
             // 투표 결과 화면 (재투표하기 버튼 있는 거)
             const resultsHTML = options.map((opt) => {
-                const count = opt.count || 0; // 현재 득표수
+                const count = opt.count || 0;
+                const whoList = opt.voters || [];   // 반환값에 맞게 이름 수정
+                const whoHTML = whoList
+                    .map(name => `<div>${escapeHTML(name)}</div>`)
+                    .join("");
+
                 return `
-                  <div class="VoteResult_item">
-                    <span>${escapeHTML(opt.content)}</span>
-                    <div class="VoteResult_item_PeopleNumber">${count}명</div>
-                  </div>
+                    <div class="VoteResult_item">
+                        <span>${escapeHTML(opt.content)}</span>
+                        <div class="VoteResult_item_PeopleNumber">${count}명</div>
+                        <div class="VoteResult_item_WhoVoted">
+                            ${whoHTML}
+                        </div>
+                    </div>
                 `;
             }).join("");
 
@@ -656,6 +714,25 @@ export default function Board() {
         // seeContainer == div class = .GaeSiPan_See
         const class_GaeSiPan_list = seeContainer.querySelector('.GaeSiPan_list');
 
+        // 날짜 포맷 표기 변경
+        const formatDateTime = (ts) => {
+            if (!ts) return "";
+            try {
+                const d = new Date(ts);
+                if (isNaN(d.getTime())) return ts;
+
+                const yyyy = d.getFullYear();
+                const MM = String(d.getMonth() + 1).padStart(2, "0");
+                const dd = String(d.getDate()).padStart(2, "0");
+                const hh = String(d.getHours()).padStart(2, "0");
+                const mm = String(d.getMinutes()).padStart(2, "0");
+
+                return `${yyyy}.${MM}.${dd} / ${hh}:${mm}`;
+            } catch (e) {
+                return ts;
+            }
+        };
+
         const renderSee = (post) => {
             seeContainer.classList.add("on");
             if (!post) return;
@@ -672,7 +749,7 @@ export default function Board() {
 
         <div class="GSPS_title_field">
           <div id="GSPS_title">${escapeHTML(post.title)}</div>
-          <div id="GSPS_when">${escapeHTML(post.timestamp)}</div>
+          <div id="GSPS_when">${formatDateTime(post.timestamp)}</div>
         </div>
 
         <div class="GSPS_field">
@@ -705,6 +782,17 @@ export default function Board() {
             // =====================================================================
             // 수정완료 버튼 (기존 작성완료 버튼)
             const editBtn = seeContainer.querySelector("#edit_See");
+            const deleteBtn = seeContainer.querySelector("#delete_See");
+
+            // isAuthor == 니가 이 글 썻냐? (수정, 삭제 권한)
+            if (post.isAuthor === false) {
+                if (editBtn) editBtn.classList.add("off");
+                if (deleteBtn) deleteBtn.classList.add("off");
+            } else {
+                if (editBtn) editBtn.classList.remove("off");
+                if (deleteBtn) deleteBtn.classList.remove("off");
+            }
+
             editBtn && editBtn.addEventListener("click", () => {
                 console.log("게시글 edit 수정");
                 fillEditForm(post); // input들 채우기
@@ -716,7 +804,6 @@ export default function Board() {
 
             // =====================================================================
             // DELETE : /api/posts/{posstId} == 게시글 삭제
-            const deleteBtn = seeContainer.querySelector("#delete_See");
 
             deleteBtn && deleteBtn.addEventListener("click", () => {
 
@@ -749,7 +836,11 @@ export default function Board() {
                             seeContainer.innerHTML = "";
                             seeContainer.classList.remove("on");
 
-                            // 추가 예정 : 게시글 리스트 목록 새로고침
+                            // 게시글 리스트 목록 새로고침
+                            if (typeof loadPostList === "function") {
+                                console.log("게시글 삭제 완, 리스트 리프레쉬 GET");
+                                loadPostList(currentPage);
+                            }
                         } else {
                             const errorText = await res.text();
                             console.log(`DELETE : /api/posts/{posstId} 실패 == ${res.status} / 내용 == `, errorText);
@@ -770,71 +861,121 @@ export default function Board() {
             const completeBtn = seeContainer.querySelector(".VOTE_complete_button");
             const revoteBtn = seeContainer.querySelector(".VoteResult_revote_button");
 
-            // 현재 사용자가 투표했는지 여부 (API 응답에 userVoted 같은 필드가 있다고 가정하거나, 일단 false로 시작)
-            // 실제로는 post.vote.userVoted 등을 확인해야 함. 여기서는 변수로 관리.
-            let isReVote = false;
+            // 투표 후, 게시글 1개 상세조회 리프레쉬
+            const refreshPostDetail = () => {
+                const token = localStorage.getItem("token");
+                fetch(`${baseURL}/api/posts/${post.id}`, {
+                    method: "GET",
+                    headers: {
+                        "Authorization": `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                    },
+                })
+                    .then(async (res) => {
+                        if (res.status === 200) {
+                            const data = await res.json();
+                            console.log("투표 후 GET : /api/posts/{postId} return 200 == ", data);
 
+                            const mappedPost = {
+                                id: data.postPk,
+                                title: data.title,
+                                content: data.content,
+                                author: data.authorName,
+                                timestamp: data.createdAt,
+                                hasFile: data.hasFile,
+                                hasVote: data.hasVoting,
+                                vote: data.vote,
+                                attachmentIds: data.attachmentIds,
+                                isNotice: data.isNotice,
+                                isAuthor: data.isAuthor     // 니가 이 글 씀?
+                            };
+
+                            renderSee(mappedPost);
+                        } else {
+                            const errorBody = await res.text();
+                            console.log(`투표 후 GET : /api/posts/{postId} 실패 == ${res.status} / Raw Body == `, errorBody);
+                        }
+                    })
+                    .catch((err) => {
+                        console.error("투표 후 GET : /api/posts/{postId} 예외처리 == ", err);
+                    });
+            };
+
+            // 백엔드 응답의 hasVoted 여부로 판단
+            const alreadyVoted = !!(post.vote && post.vote.hasVoted);
+            let isReVote = alreadyVoted;
+
+            // 상세보기 들어갈 떄, 투표 관련 처리
+            if (alreadyVoted) {
+                resultPanel && resultPanel.classList.add("on");
+                VOTE_PAGE_class && VOTE_PAGE_class.classList.add("off");
+            } else {
+                resultPanel && resultPanel.classList.remove("on");
+                VOTE_PAGE_class && VOTE_PAGE_class.classList.remove("off");
+            }
+
+            // 투표 중복, 익명 여부
+            const allowMulti = !!(post.vote && post.vote.allowMultipleChoices);
+            const isAnonymous = !!(post.vote && post.vote.isAnonymous);
+
+
+            // POST : /api/votes/options/{optionId}/cast == 투표
+            // PUT : /api/votes/options/{optionId}/cast == 재투표
             if (completeBtn) {
-
-
-                // POST : /api/votes/options == 투표하기
                 completeBtn.addEventListener("click", () => {
-                    // 선택된 항목 가져오기
-                    const checkedInputs = Array.from(seeContainer.querySelectorAll('input[name="VOTE_item_check"]:checked'));
+                    const checkedInputs = Array.from(
+                        seeContainer.querySelectorAll('input[name="VOTE_item_check"]:checked')
+                    );
 
                     if (checkedInputs.length === 0) {
                         alert("투표 항목을 하나 이상 선택해주세요.");
                         return;
                     }
 
-                    // 선택된 데이터 추출
-                    const selectedInput = checkedInputs[0];
-                    const selectedOptionId = selectedInput.value;
-
+                    // 단일 or 복수 선택에 따른optionId
+                    const selectedOptionIds = checkedInputs.map((input) => input.value);
                     const token = localStorage.getItem("token");
 
+                    // 첫투표 or 재투표냐에 따라, POST or PUT 분리
+                    const method = (isReVote ? "PUT" : "POST");
+                    console.log(`현재 투표 요청: method == ${method} , isReVote == ${isReVote}`);
 
-                    // 첫투표 POST, 재투표 PUT이 원래 정상인데 지금 작동 안해서 바꿈
-                    // ================================================
-                    // const method = isReVote ? "POST" : "PUT";
-                    const method = "PUT";
-
-                    const requestUrl = `${baseURL}/api/votes/options/${selectedOptionId}/cast`;
-                    console.log(`POST : /api/votes/options 요청 시작`);
-
-                    fetch(requestUrl, {
-                        method: method,
-                        headers: {
-                            "Authorization": `Bearer ${token}`,
-                        },
-                        // body 없음
-                    })
-                        .then(async (res) => {
-                            console.log(`POST : /api/votes/options 응답 코드 == ${res.status}`);
-
-                            // 응답 내용 확인 (성공 시 비어있을 수도 있음)
+                    const castOne = (optionId) => {
+                        const requestUrl = `${baseURL}/api/votes/options/${optionId}/cast`;
+                        return fetch(requestUrl, {
+                            method,
+                            headers: {
+                                "Authorization": `Bearer ${token}`,
+                            },
+                        }).then(async (res) => {
                             const resultText = await res.text();
-                            console.log(`POST : /api/votes/options 응답 내용 == `, resultText);
-
-                            if (res.status === 200 || res.status === 201) {
-                                alert(isReVote ? "재투표가 완료되었습니다." : "투표가 완료되었습니다.");
-
-                                // 화면 전환
-                                resultPanel && resultPanel.classList.add("on");
-                                VOTE_PAGE_class && VOTE_PAGE_class.classList.add("off");
-
-                                isReVote = true;
-                                // (선택사항) 최신 상태 반영을 위해 리스트 갱신
-                                // loadPostList(currentPage);
-                            } else {
-                                // 403 등 에러 발생 시
-                                console.error(`POST : /api/votes/options 실패 == (${res.status}): ${resultText}`);
-                                alert(`응답 코드 200, 201 아님 == ${resultText}`);
+                            console.log(
+                                `${method} : /api/votes/options/${optionId}/cast 응답 == ${res.status}`,
+                                resultText
+                            );
+                            if (res.status !== 200 && res.status !== 201) {
+                                throw new Error(
+                                    `옵션 ${optionId} 투표 실패 (${res.status}): ${resultText}`
+                                );
                             }
+                        });
+                    };
+
+                    // 복수 선택이면 여러 개, 아니면 첫 번째만
+                    const targetIds = allowMulti
+                        ? selectedOptionIds
+                        : [selectedOptionIds[0]];
+
+                    Promise.all(targetIds.map(castOne))
+                        .then(() => {
+                            alert(isReVote ? "재투표가 완료되었습니다." : "투표가 완료되었습니다.");
+                            isReVote = true;
+                            // 투표 후 상세 다시 GET
+                            refreshPostDetail();
                         })
-                        .catch(err => {
-                            console.error("예외처리! POST : /api/votes/options == ", err);
-                            alert("투표 중 오류가 발생했습니다.");
+                        .catch((err) => {
+                            console.error("예외처리! PUT : /api/votes/options == ", err);
+                            alert(`투표 중 오류가 발생했습니다.\n${err.message}`);
                         });
                 });
             }
@@ -848,20 +989,28 @@ export default function Board() {
                     VOTE_PAGE_class && VOTE_PAGE_class.classList.remove("off");
 
                     // 상태는 이미 isReVote = true 상태임
-                    console.log("🔄 재투표 화면으로 전환 (API 호출 아님)");
+                    console.log("재투표 화면으로 전환, API 호출 X");
                 });
             }
 
-            // 누가 투표했는지 보기 (기존 로직 복구)
-            const numBtns = seeContainer.querySelectorAll(".VoteResult_item_PeopleNumber");
-            numBtns.forEach((btn) => {
-                btn.addEventListener("click", (e) => {
-                    const item = e.target.closest(".VoteResult_item");
-                    if (!item) return;
-                    const whoPanel = item.querySelector(".VoteResult_item_WhoVoted");
-                    if (whoPanel) whoPanel.classList.toggle("on");
+            // 누가 투표했는지 보기 (익명 투표가 아닐 때만 활성화)
+            if (!isAnonymous) {
+                const numBtns = seeContainer.querySelectorAll(".VoteResult_item_PeopleNumber");
+                numBtns.forEach((btn) => {
+                    btn.addEventListener("click", (e) => {
+                        const item = e.target.closest(".VoteResult_item");
+                        if (!item) return;
+                        const whoPanel = item.querySelector(".VoteResult_item_WhoVoted");
+                        if (whoPanel) whoPanel.classList.toggle("on");
+                    });
                 });
-            });
+            } else {
+                // 익명 투표
+                const numBtns = seeContainer.querySelectorAll(".VoteResult_item_PeopleNumber");
+                numBtns.forEach((btn) => {
+                    btn.style.cursor = "default";   // 커서 비활 처리
+                });
+            }
 
             seeContainer.scrollIntoView({ behavior: "smooth", block: "start" });
         };
@@ -904,7 +1053,8 @@ export default function Board() {
                             hasVote: data.hasVoting,
                             vote: data.vote,
                             attachmentIds: data.attachmentIds,
-                            isNotice: data.isNotice
+                            isNotice: data.isNotice,
+                            isAuthor: data.isAuthor     // 니가 이 글 씀?
                         };
 
                         renderSee(mappedPost);
@@ -944,15 +1094,15 @@ export default function Board() {
 
             // 공지 개수 10개 over인 경우,
             if (
-              isNoticeLimitReached &&
-              isNotice &&
-              (
-                !isEditMode ||
-                (isEditMode && !editOriginalIsNotice)
-              )
+                isNoticeLimitReached &&
+                isNotice &&
+                (
+                    !isEditMode ||
+                    (isEditMode && !editOriginalIsNotice)
+                )
             ) {
-              alert("공지글은 최대 10개까지 등록할 수 있습니다.");
-              return;
+                alert("공지글은 최대 10개까지 등록할 수 있습니다.");
+                return;
             }
 
             if (!title || !content) {
@@ -960,7 +1110,8 @@ export default function Board() {
                 return;
             }
 
-            if (hasVoting && !tempVoteData) {
+            // 게시글 수정일 땐, 안 뜸
+            if (!isEditMode && hasVoting && !tempVoteData) {
                 alert("투표 추가를 선택하셨으면 투표 내용을 설정해주세요.");
                 return;
             }
@@ -992,7 +1143,7 @@ export default function Board() {
                         formData.append("files", file);
                     });
                 }
-                console.log("PUT : /api/posts/{postId} FormData 전송 시작");
+                console.log(`PUT : /api/posts/{postId} FormData == ${formData}`);
 
                 fetch(`${baseURL}/api/posts/${editTargetId}`, {
                     method: "PUT",
@@ -1074,19 +1225,22 @@ export default function Board() {
             // ========================================================================
             // POST : /api/posts == 게시글 작성
             const postPayload = {
-                projectPk: ProjectPK, // TODO: 실제값 교체
+                projectPk: ProjectPK,
                 title: title,
                 content: content,
                 isNotice: isNotice,
                 hasVoting: !!hasVoting,
-                // 투표 데이터가 있으면 같이 포함 (Flat 구조)
-                ...(hasVoting && tempVoteData ? {
-                    voteTitle: tempVoteData.title,
-                    voteOptions: tempVoteData.optionContents,
-                    // voteEndTime: tempVoteData.endTime,
-                    // voteIsAnonymous: tempVoteData.isAnonymous,
-                    // voteAllowMultipleChoices: tempVoteData.allowMultipleChoices
-                } : {})
+
+                ...(hasVoting && tempVoteData
+                    ? {
+                        voteTitle: tempVoteData.title,
+                        voteOptions: tempVoteData.optionContents,
+                        // 필요하면 나중에 사용
+                        // voteEndTime: tempVoteData.endTime,
+                        allowMultipleChoices: !!tempVoteData.allowMultipleChoices,
+                        isAnonymous: !!tempVoteData.isAnonymous,
+                    }
+                    : {}),
             };
             const formData = new FormData();
             formData.append(
@@ -1291,9 +1445,13 @@ export default function Board() {
 
             // [수정] 전역 변수에 저장
             tempVoteData = voteData;
-            console.log("✅ 투표 데이터 임시 저장 완료:", tempVoteData);
-
+            console.log("투표 데이터 임시 저장 완", tempVoteData);
             alert("투표 내용이 설정되었습니다.\n(게시글 작성 완료 시 함께 생성됩니다)");
+
+            const voteBtn = document.querySelector(".GSPW_vote_button");
+            if (voteBtn) {
+                voteBtn.textContent = "투표 수정";
+            }
 
             // 모달 닫기
             const writeBlur = document.getElementById("GSPW_blurScreen");
@@ -1345,10 +1503,21 @@ export default function Board() {
                 </div>
                 <div class="container_GaeSiPanList">
                     <div id="GSP_page"></div>
-                    {/* 검색 = 제목 및 작성자로 검색 */}
+
+                    {/* 검색 = 제목 or 작성자로 검색 */}
                     <div className="GSP_search_container">
-                        <input type="text" id="GSP_search_box" placeholder="제목 및 작성자로 검색" />
-                        <button id="GSP_search_button">검색</button>
+                        <select id="GSP_search_type" className="GSP_search_select">
+                            <option value="TITLE">제목</option>
+                            <option value="AUTHOR">작성자</option>
+                        </select>
+                        <input
+                            id="GSP_search_box"
+                            type="text"
+                            placeholder="검색어를 입력하세요"
+                        />
+                        <button id="GSP_search_button" type="button">
+                            검색
+                        </button>
                     </div>
                 </div>
 

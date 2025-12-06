@@ -9,37 +9,46 @@ import logo from "../../asset/HYUPMIN_logo.svg";
 const API_URL = import.meta.env.VITE_DEV_PROXY_URL;
 
 const NavBar = () => {
-  const token = localStorage.getItem("token");
   const navigate = useNavigate();
+  const token = sessionStorage.getItem("token");
   const [projectCode, setProjectCode] = useState("");
   const [userName, setUserName] = useState("");
   const [fullName, setFullName] = useState("");
 
-  // 사용자 정보 가져오기
   useEffect(() => {
-    const fetchUserInfo = async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/users/me`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+    const loadUserFromStorage = () => {
+      const stored = sessionStorage.getItem("user");
 
-        if (response.ok) {
-          const data = await response.json();
-          setFullName(data.name || "");
-          setUserName(data.name ? data.name.charAt(0) : "");
-        }
-      } catch (error) {
-        console.error("사용자 정보 로딩 실패:", error);
+      if (!stored) {
+        setFullName("");
+        setUserName("");
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(stored);
+        const name = parsed && parsed.name ? parsed.name : "";
+        setFullName(name);
+        setUserName(name ? name.charAt(0) : "");
+      } catch (storageError) {
+        console.error("저장된 사용자 정보 파싱 실패:", storageError);
+        setFullName("");
+        setUserName("");
       }
     };
 
-    if (token) {
-      fetchUserInfo();
-    }
-  }, [token]);
+    loadUserFromStorage();
+
+    const handleStorageUpdate = () => {
+      loadUserFromStorage();
+    };
+
+    window.addEventListener("userInfoUpdated", handleStorageUpdate);
+
+    return () => {
+      window.removeEventListener("userInfoUpdated", handleStorageUpdate);
+    };
+  }, []);
 
   const handleCreateProject = async () => {
     try {
@@ -61,9 +70,9 @@ const NavBar = () => {
       const data = await response.json();
       const newProjectId = data.projectPk;
 
-      alert("프로젝트가 생성되었습니다. 프로젝트 설정 페이지로 이동합니다.")
+      alert("프로젝트가 생성되었습니다. 프로젝트 설정 페이지로 이동합니다.");
 
-      navigate(`/project/${newProjectId}/setting`);
+      navigate(`/project/${newProjectId}/projectsetting`);
     } catch (error) {
       console.error("프로젝트 생성 중 오류: ", error);
       alert("프로젝트 생성에 실패했습니다.");
@@ -101,7 +110,8 @@ const NavBar = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
     navigate("/");
   };
 
@@ -119,7 +129,7 @@ const NavBar = () => {
             <input
               type="text"
               className="SearchBar"
-              placeholder="참여하고 싶은 프로젝트 코드를 입력해주세요"
+              placeholder="참여하고 싶은 프로젝트 코드를 입력 후 <enter>를 입력해주세요"
               value={projectCode}
               onChange={(e) => setProjectCode(e.target.value)}
               onKeyDown={(e) => {

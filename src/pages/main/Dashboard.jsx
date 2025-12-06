@@ -8,30 +8,28 @@ const Dashboard = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token = sessionStorage.getItem("token");
     if (!token) {
       alert("로그인이 필요합니다. 로그인 후 이용해주세요.");
-      navigate("/login");
+      navigate("/");
       return;
     }
 
-    const storedUser = localStorage.getItem("user");
+    const storedUser = sessionStorage.getItem("user");
     if (storedUser) {
       try {
         const userData = JSON.parse(storedUser);
         setUser(userData);
-        console.log("환영합니다!", userData.name || userData.email);
       } catch (error) {
         console.error("사용자 정보 파싱 오류:", error);
-        localStorage.clear();
-        navigate("/login");
+        sessionStorage.clear();
+        navigate("/");
       }
     }
   }, [navigate]);
 
   return (
     <div className="dashboard-container">
-      {user ? <h2>{user.name || user.email}님, 환영합니다!</h2> : <div></div>}
       <Calendar />
     </div>
   );

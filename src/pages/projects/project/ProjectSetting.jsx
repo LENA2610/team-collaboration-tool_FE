@@ -29,7 +29,7 @@ const ProjectSetting = () => {
       const response = await fetch(`${API_URL}/api/projects/${projectId}`, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${sessionStorage.getItem("token")}`,
         },
       });
       if (response.ok) {
@@ -57,7 +57,7 @@ const ProjectSetting = () => {
       const response = await fetch(`${API_URL}/api/projects/${projectId}/join-requests`, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${sessionStorage.getItem("token")}`,
         },
       });
       if (response.ok) {
@@ -79,12 +79,18 @@ const ProjectSetting = () => {
 
   // 프로젝트 이름 수정
   const handleUpdateProjectName = async () => {
+    
+    if (!newProjectName.trim()) {
+      alert("프로젝트명을 입력해주세요.");
+      return;
+    }
+    
     try {
       const response = await fetch(`${API_URL}/api/projects/${projectId}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${sessionStorage.getItem("token")}`,
         },
         body: JSON.stringify({ projectName: newProjectName }),
       });
@@ -107,7 +113,7 @@ const ProjectSetting = () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${sessionStorage.getItem("token")}`,
           },
         }
       );
@@ -130,7 +136,7 @@ const ProjectSetting = () => {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${sessionStorage.getItem("token")}`,
           },
         }
       );
@@ -151,7 +157,7 @@ const ProjectSetting = () => {
         {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${sessionStorage.getItem("token")}`,
           },
         }
       );
@@ -173,7 +179,7 @@ const ProjectSetting = () => {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            Authorization: `Bearer ${sessionStorage.getItem("token")}`,
           },
         }
       );
@@ -193,7 +199,7 @@ const ProjectSetting = () => {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${sessionStorage.getItem("token")}`,
         },
         body: JSON.stringify({projectName: inputProjectName }),
       });
@@ -222,7 +228,7 @@ const ProjectSetting = () => {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${sessionStorage.getItem("token")}`,
         },
         body: JSON.stringify({ projectName: inputProjectName }),
       });
@@ -302,6 +308,7 @@ const ProjectSetting = () => {
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   className="ps-name-input"
+                  maxLength="30"
                 />
                 {renderJoinCodeChip()}
                 <div className="ps-name-edit-actions">

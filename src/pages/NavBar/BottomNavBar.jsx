@@ -10,7 +10,7 @@ import settingIcon1 from "../../asset/Icon/settingIcon-01.svg";
 
 const API_URL = import.meta.env.VITE_DEV_PROXY_URL;
 
-const PageNavBar = ({ projectName }) => {
+const PageNavBar = ({ leftContentState }) => {
   const { projectID } = useParams();
   const location = useLocation();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -19,8 +19,18 @@ const PageNavBar = ({ projectName }) => {
   const [error, setError] = useState(null);
 
   const isCalendarPage = location.pathname.endsWith("/calendar");
+  const isSettingPage = location.pathname.endsWith("/setting");
 
   const currentProjectIdFromURL = projectID ? parseInt(projectID, 10) : null;
+
+  const isCalendarViewActive =
+    leftContentState === "SCHEDULE_LIST" ||
+    leftContentState === "SCHEDULE_VIEW";
+
+  const isBaseProjectRoute =
+    projectID && location.pathname === `/project/${projectID}`;
+
+  const isProjectListDisabled = isBaseProjectRoute && !isCalendarViewActive;
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -57,6 +67,9 @@ const PageNavBar = ({ projectName }) => {
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
+  if (isSettingPage) {
+    return null;
+  }
 
   const pages = [
     {
@@ -87,7 +100,7 @@ const PageNavBar = ({ projectName }) => {
       id: 5,
       name: "프로젝트 관리",
       src: settingIcon1,
-      to: `/project/${projectID}/setting`,
+      to: `/project/${projectID}/projectsetting`,
     },
   ];
 
@@ -105,7 +118,9 @@ const PageNavBar = ({ projectName }) => {
   ));
 
   const toggleModal = () => {
-    if (isCalendarPage) return;
+    if (isProjectListDisabled) {
+      return;
+    }
     setIsModalOpen(!isModalOpen);
   };
 
@@ -137,7 +152,14 @@ const PageNavBar = ({ projectName }) => {
     <>
       <div className="NavBar-bottom">
         <div className="bottom">
-          <div className="ProjectName" onClick={toggleModal}>
+          <div
+            className="ProjectName"
+            onClick={toggleModal}
+            style={{
+              cursor: isProjectListDisabled ? "default" : "pointer",
+              opacity: isProjectListDisabled ? 0.6 : 1,
+            }}
+          >
             프로젝트 목록
           </div>
           <div className="button">
